@@ -256,7 +256,10 @@ export function DonationSuccessPage() {
 
   // Auto-verify as soon as DPO redirects back with the token
   useEffect(() => {
-    if (transactionToken) verifyPayment();
+    if (!transactionToken) return;
+    void (async () => {
+      await verifyPayment();
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transactionToken]);
 

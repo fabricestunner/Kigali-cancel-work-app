@@ -535,8 +535,10 @@ function PaymentForm({
 
 function PaymentSuccessPage({ donationData }: { donationData: DonationSummary }) {
   const navigate = useNavigate();
-  const transactionId = `TXN-${Date.now()}`;
-  const date = new Date().toLocaleString();
+  // Computed once per mount: Date.now()/new Date() are impure, so they must not
+  // run in the render path directly.
+  const [transactionId] = useState(() => `TXN-${Date.now()}`);
+  const [date] = useState(() => new Date().toLocaleString());
 
   const handleDownloadReceipt = () => {
     // Simulate download

@@ -17,11 +17,16 @@ export function CartPage() {
 
   useEffect(() => {
     if (deliveryOption !== "buddy" || buddyGroups !== null) return;
-    setBuddyGroupsLoading(true);
-    getAllBuddyGroups()
-      .then(setBuddyGroups)
-      .catch(() => setBuddyGroups([]))
-      .finally(() => setBuddyGroupsLoading(false));
+    void (async () => {
+      setBuddyGroupsLoading(true);
+      try {
+        setBuddyGroups(await getAllBuddyGroups());
+      } catch {
+        setBuddyGroups([]);
+      } finally {
+        setBuddyGroupsLoading(false);
+      }
+    })();
   }, [deliveryOption, buddyGroups]);
 
   const selectedBuddyGroup = buddyGroups?.find((g) => g.id === buddyGroupId) ?? null;

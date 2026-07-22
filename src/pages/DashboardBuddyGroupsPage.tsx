@@ -268,7 +268,9 @@ export function DashboardBuddyGroupsPage() {
   };
 
   useEffect(() => {
-    load();
+    void (async () => {
+      await load();
+    })();
   }, []);
 
   const stats = useMemo(

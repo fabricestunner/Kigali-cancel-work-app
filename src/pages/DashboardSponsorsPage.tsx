@@ -295,7 +295,11 @@ export function DashboardSponsorsPage() {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    void (async () => {
+      await load();
+    })();
+  }, []);
 
   /* stats */
   const stats = useMemo(() => {

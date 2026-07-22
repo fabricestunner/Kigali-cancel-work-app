@@ -378,7 +378,9 @@ export function DashboardDonationsPage() {
   };
 
   useEffect(() => {
-    load();
+    void (async () => {
+      await load();
+    })();
   }, []);
 
   /* filtered list */

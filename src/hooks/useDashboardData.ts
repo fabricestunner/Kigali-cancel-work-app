@@ -143,7 +143,9 @@ export function useDashboardData(): DashboardData {
   }, []);
 
   useEffect(() => {
-    fetchData();
+    void (async () => {
+      await fetchData();
+    })();
   }, [fetchData]);
 
   return { stocks, orders, donationStats, donations, sponsors, volunteers, influencers, loading, error, refresh: fetchData };

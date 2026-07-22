@@ -384,7 +384,9 @@ export function DashboardInfluencersPage() {
   };
 
   useEffect(() => {
-    load();
+    void (async () => {
+      await load();
+    })();
   }, []);
 
   const stats = useMemo(

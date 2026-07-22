@@ -82,7 +82,9 @@ export function DashboardOrdersPage() {
   }, [buddyFilter]);
 
   useEffect(() => {
-    load();
+    void (async () => {
+      await load();
+    })();
   }, [load]);
 
   const filtered = useMemo(() => {
