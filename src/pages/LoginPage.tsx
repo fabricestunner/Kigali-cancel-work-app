@@ -5,6 +5,7 @@ import { LogIn, Eye, EyeOff, Lock, Mail, ArrowLeft } from "lucide-react";
 import { Input, Button } from "../components/ui";
 import api from "../services/api";
 import axios from "axios"; // only for isAxiosError check
+import { getRole } from "../utils/auth";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -67,7 +68,10 @@ export function LoginPage() {
         localStorage.setItem("user", JSON.stringify(data.user));
       }
 
-      navigate("/dashboard");
+      // A promoter's Sidebar only has Kit Orders — land there directly
+      // rather than on the overview page, which pulls in donation/sponsor/
+      // volunteer data a promoter has no server-side access to.
+      navigate(getRole() === "promoter" ? "/dashboard/orders" : "/dashboard");
     } catch (error) {
       if (axios.isAxiosError(error)) {
         const message =

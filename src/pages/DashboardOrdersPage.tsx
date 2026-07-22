@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { motion } from "framer-motion";
+import axios from "axios";
 import { Sidebar } from "../components/dashboard/Sidebar";
 import { Header } from "../components/dashboard/Header";
 import {
@@ -11,6 +12,8 @@ import {
   AlertCircle,
   Eye,
   CheckCircle,
+  Circle,
+  Ban,
   UsersRound,
 } from "lucide-react";
 import api from "../services/api";
@@ -22,6 +25,22 @@ import {
   isPaid,
 } from "../components/dashboard/recentOrders.helpers";
 import { getAllBuddyGroups, type BuddyGroup } from "../services/buddygroup.service";
+import { markOrderCollected } from "../services/order.service";
+import {
+  collectionState,
+  groupByPaymentRef,
+  type CollectionStateValue,
+  type CollectionSummary,
+} from "../utils/collection";
+
+const COLLECTION_STATE_LABELS: Record<CollectionStateValue, string> = {
+  collected: "Collected",
+  partial: "Partial",
+  awaiting: "Awaiting collection",
+  "not-payable": "Not payable",
+};
+
+const orderGroupKey = (o: Order) => o.payment_ref ?? `#${o.id}`;
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-RW", {
@@ -39,7 +58,7 @@ function formatAmount(amount: string | number, currency: string) {
 function SkeletonRow() {
   return (
     <tr className="border-b border-slate-100">
-      {[...Array(8)].map((_, i) => (
+      {[...Array(10)].map((_, i) => (
         <td key={i} className="px-4 py-4">
           <div
             className="h-4 bg-slate-100 rounded animate-pulse"
@@ -61,6 +80,9 @@ export function DashboardOrdersPage() {
   const [buddyFilter, setBuddyFilter] = useState("all");
   const [selected, setSelected] = useState<Order | null>(null);
   const [marking, setMarking] = useState(false);
+  const [collectionFilter, setCollectionFilter] = useState<"all" | CollectionStateValue>("all");
+  const [togglingId, setTogglingId] = useState<number | null>(null);
+  const [collectError, setCollectError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -89,14 +111,48 @@ export function DashboardOrdersPage() {
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    if (!q) return orders;
-    return orders.filter(
-      (o) =>
+    return orders.filter((o) => {
+      const matchesSearch =
+        !q ||
         o.full_name.toLowerCase().includes(q) ||
         o.email.toLowerCase().includes(q) ||
-        (o.payment_ref ?? "").toLowerCase().includes(q),
-    );
-  }, [orders, search]);
+        (o.payment_ref ?? "").toLowerCase().includes(q);
+
+      const matchesCollection =
+        collectionFilter === "all" ||
+        collectionState([o]).state === collectionFilter;
+
+      return matchesSearch && matchesCollection;
+    });
+  }, [orders, search, collectionFilter]);
+
+  // Roll-up per customer. The backend writes one row per cart line, so a buyer
+  // of four kits in two sizes has two rows sharing a payment_ref; the group
+  // summary is what tells staff whether that buyer is fully served.
+  const groups = useMemo(() => groupByPaymentRef(orders), [orders]);
+
+  const groupSummary = useCallback(
+    (order: Order): CollectionSummary => collectionState(groups[orderGroupKey(order)] ?? [order]),
+    [groups],
+  );
+
+  const handleToggleCollected = async (order: Order) => {
+    setTogglingId(order.id);
+    setCollectError(null);
+    try {
+      await markOrderCollected(order.id, !order.collected);
+      await load();
+    } catch (err) {
+      // The server refuses an unpaid order with 409 and an explanation. Show
+      // its message rather than a generic failure — the reason is the point.
+      const message = axios.isAxiosError(err)
+        ? (err.response?.data as { message?: string } | undefined)?.message
+        : undefined;
+      setCollectError(message ?? "Could not update collection status.");
+    } finally {
+      setTogglingId(null);
+    }
+  };
 
   const handleMarkPaid = async (order: Order) => {
     setMarking(true);
@@ -182,10 +238,30 @@ export function DashboardOrdersPage() {
                     ))}
                   </select>
                 </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={collectionFilter}
+                    onChange={(e) =>
+                      setCollectionFilter(e.target.value as "all" | CollectionStateValue)
+                    }
+                    className="bg-surface-container border border-outline-variant rounded-xl px-3 py-2.5 font-['Inter'] text-sm text-on-surface outline-none"
+                  >
+                    <option value="all">Any collection state</option>
+                    <option value="awaiting">Awaiting collection</option>
+                    <option value="collected">Collected</option>
+                    <option value="not-payable">Not payable</option>
+                  </select>
+                </div>
                 <div className="flex items-center justify-center px-3 py-2.5 rounded-xl bg-primary/10 font-['Inter'] text-sm font-semibold text-primary whitespace-nowrap">
                   {filtered.length} result{filtered.length !== 1 ? "s" : ""}
                 </div>
               </div>
+              {collectError && (
+                <div className="mt-3 flex items-start gap-2 rounded-xl border border-error/30 bg-error/10 px-3 py-2.5">
+                  <AlertCircle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />
+                  <p className="font-['Inter'] text-sm text-error">{collectError}</p>
+                </div>
+              )}
             </div>
 
             {/* Table */}
@@ -213,6 +289,7 @@ export function DashboardOrdersPage() {
                           "Qty",
                           "Amount",
                           "Collection",
+                          "Collected",
                           "Status",
                           "Date",
                           "",
@@ -235,7 +312,7 @@ export function DashboardOrdersPage() {
                         [...Array(6)].map((_, i) => <SkeletonRow key={i} />)
                       ) : filtered.length === 0 ? (
                         <tr>
-                          <td colSpan={9} className="px-4 py-16 text-center">
+                          <td colSpan={10} className="px-4 py-16 text-center">
                             <div className="flex flex-col items-center gap-2 text-on-surface-variant">
                               <Shirt className="w-10 h-10 opacity-30" />
                               <p className="font-['Inter'] text-sm">
@@ -284,6 +361,60 @@ export function DashboardOrdersPage() {
                                   {collectionLabel(order)}
                                 </span>
                               )}
+                            </td>
+                            <td className="px-4 py-4">
+                              {(() => {
+                                const payable = isPaid(order.status);
+                                const summary = groupSummary(order);
+                                return (
+                                  <div className="flex flex-col gap-1">
+                                    <button
+                                      type="button"
+                                      disabled={!payable || togglingId === order.id}
+                                      onClick={() => handleToggleCollected(order)}
+                                      title={
+                                        payable
+                                          ? order.collected
+                                            ? "Mark as not collected"
+                                            : "Mark as collected"
+                                          : "This order has not been paid for"
+                                      }
+                                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-colors ${
+                                        !payable
+                                          ? "bg-surface-container text-on-surface-variant border-outline-variant cursor-not-allowed"
+                                          : order.collected
+                                            ? "bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
+                                            : "bg-surface-container text-on-surface-variant border-outline-variant hover:bg-primary-container"
+                                      }`}
+                                    >
+                                      {!payable ? (
+                                        <Ban className="w-3 h-3" />
+                                      ) : order.collected ? (
+                                        <CheckCircle className="w-3 h-3" />
+                                      ) : (
+                                        <Circle className="w-3 h-3" />
+                                      )}
+                                      {!payable
+                                        ? COLLECTION_STATE_LABELS["not-payable"]
+                                        : order.collected
+                                          ? "Collected"
+                                          : "Awaiting"}
+                                    </button>
+                                    {payable && summary.total > 1 && (
+                                      <span className="font-['Inter'] text-[11px] text-on-surface-variant">
+                                        {summary.state === "partial"
+                                          ? `Partial (${summary.collected}/${summary.total})`
+                                          : `${COLLECTION_STATE_LABELS[summary.state]} (${summary.collected}/${summary.total})`}
+                                      </span>
+                                    )}
+                                    {order.collected && order.collected_at && (
+                                      <span className="font-['Inter'] text-[11px] text-on-surface-variant">
+                                        {formatDate(order.collected_at)}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </td>
                             <td className="px-4 py-4">
                               <span

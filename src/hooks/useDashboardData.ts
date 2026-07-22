@@ -33,6 +33,9 @@ export interface Order {
   buddy_group: OrderBuddyGroup | null;
   createdAt: string;
   stock: StockItem;
+  collected: boolean;
+  collected_at: string | null;
+  collected_by: string | null;
 }
 
 export interface Donation {

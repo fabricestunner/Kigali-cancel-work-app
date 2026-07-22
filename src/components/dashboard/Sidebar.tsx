@@ -16,13 +16,19 @@ import {
   UsersRound,
   Briefcase,
   Bell,
+  ShieldCheck,
 } from "lucide-react";
 import logo from "../../assets/KCW-LOGO.png";
+import { getRole, type Role } from "../../utils/auth";
 
 interface NavItem {
   label: string;
   icon: React.ReactNode;
   href: string;
+  // Roles allowed to see this entry. Omitted = admin only, since every
+  // dashboard section predates promoters and defaults to the wider access
+  // an admin already has.
+  roles?: Role[];
 }
 
 const navItems: NavItem[] = [
@@ -35,6 +41,7 @@ const navItems: NavItem[] = [
     label: "Kit Orders",
     icon: <Shirt className="w-5 h-5" />,
     href: "/dashboard/orders",
+    roles: ["admin", "promoter"],
   },
   {
     label: "Sponsors",
@@ -82,6 +89,11 @@ const navItems: NavItem[] = [
     href: "/dashboard/notifications",
   },
   {
+    label: "Users",
+    icon: <ShieldCheck className="w-5 h-5" />,
+    href: "/dashboard/users",
+  },
+  {
     label: "Settings",
     icon: <Settings className="w-5 h-5" />,
     href: "/dashboard/settings",
@@ -92,6 +104,13 @@ export function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const location = useLocation();
+  // Presentation only: hides entries a promoter has no server-side access
+  // to. The server is what actually enforces the boundary — this just keeps
+  // a promoter from staring at a link that will always 403.
+  const role = getRole();
+  const visibleItems = navItems.filter(
+    (item) => !item.roles || item.roles.includes(role ?? "admin"),
+  );
 
   return (
     <>
@@ -152,7 +171,7 @@ export function Sidebar() {
 
         {/* Navigation */}
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-          {navItems.map((item) => {
+          {visibleItems.map((item) => {
             const isActive = location.pathname === item.href;
             return (
               <Link

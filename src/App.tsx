@@ -31,6 +31,7 @@ import { DashboardVolunteersPage } from "./pages/DashboardVolunteersPage";
 import { DashboardOrdersPage } from "./pages/DashboardOrdersPage";
 import { DashboardBuddyGroupsPage } from "./pages/DashboardBuddyGroupsPage";
 import { DashboardNotificationsPage } from "./pages/DashboardNotificationsPage";
+import { DashboardUsersPage } from "./pages/DashboardUsersPage";
 import { TestEmailPage } from "./pages/TestEmailPage";
 import ScrollToTop from "./components/ScrollToTop";
 
@@ -58,6 +59,7 @@ function AppContent() {
             path="/dashboard/notifications"
             element={<DashboardNotificationsPage />}
           />
+          <Route path="/dashboard/users" element={<DashboardUsersPage />} />
           <Route path="/dashboard/test-email" element={<TestEmailPage />} />
           <Route path="/dashboard/*" element={<DashboardPage />} />
         </Routes>
