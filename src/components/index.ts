@@ -5,3 +5,4 @@ export { StatsSection } from './StatsSection';
 export { CTASection } from './CTASection';
 export { CountdownTimer } from './CountdownTimer';
 export { PartnersSection } from './PartnersSection';
+export * from './ProtectedRoute';

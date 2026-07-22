@@ -5,7 +5,7 @@ import {
   useLocation,
 } from "react-router-dom";
 
-import { Navbar, Footer } from "./components";
+import { Navbar, Footer, ProtectedRoute } from "./components";
 import { CartProvider } from "./context/CartContext";
 import { HomePage } from "./pages/HomePage";
 import { AboutPage } from "./pages/AboutPage";
@@ -39,22 +39,24 @@ function AppContent() {
 
   if (isDashboard) {
     return (
-      <Routes>
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/dashboard/sponsors" element={<DashboardSponsorsPage />} />
-        <Route
-          path="/dashboard/donations"
-          element={<DashboardDonationsPage />}
-        />
-        <Route path="/dashboard/orders" element={<DashboardOrdersPage />} />
-        <Route path="/dashboard/volunteers" element={<DashboardVolunteersPage />} />
-        <Route
-          path="/dashboard/buddy-groups"
-          element={<DashboardBuddyGroupsPage />}
-        />
-        <Route path="/dashboard/test-email" element={<TestEmailPage />} />
-        <Route path="/dashboard/*" element={<DashboardPage />} />
-      </Routes>
+      <ProtectedRoute>
+        <Routes>
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/dashboard/sponsors" element={<DashboardSponsorsPage />} />
+          <Route
+            path="/dashboard/donations"
+            element={<DashboardDonationsPage />}
+          />
+          <Route path="/dashboard/orders" element={<DashboardOrdersPage />} />
+          <Route path="/dashboard/volunteers" element={<DashboardVolunteersPage />} />
+          <Route
+            path="/dashboard/buddy-groups"
+            element={<DashboardBuddyGroupsPage />}
+          />
+          <Route path="/dashboard/test-email" element={<TestEmailPage />} />
+          <Route path="/dashboard/*" element={<DashboardPage />} />
+        </Routes>
+      </ProtectedRoute>
     );
   }
 
