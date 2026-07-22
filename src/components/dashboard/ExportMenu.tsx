@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Download, ChevronDown, FileSpreadsheet, FileText } from "lucide-react";
+import { Download, ChevronDown, FileSpreadsheet, FileText, Files } from "lucide-react";
 import {
   exportToExcel,
   exportToPdf,
+  exportWorkbook,
   type ExportColumn,
+  type WorkbookSheet,
 } from "../../utils/exportData";
 
 interface ExportMenuProps<T> {
@@ -15,6 +17,17 @@ interface ExportMenuProps<T> {
   /** Report title shown in the file header. */
   title: string;
   disabled?: boolean;
+  /**
+   * Optional multi-sheet workbook (e.g. one tab per order status). When
+   * provided, adds a "Download Workbook" option alongside the single-sheet
+   * exports. Independent of `rows`/`columns` — the workbook can have data
+   * even when the current table view is empty or filtered down.
+   */
+  workbookSheets?: WorkbookSheet[];
+  /** Label for the workbook option; defaults to "Download Workbook". */
+  workbookLabel?: string;
+  /** Hint text under the workbook option. */
+  workbookHint?: string;
 }
 
 export function ExportMenu<T>({
@@ -23,6 +36,9 @@ export function ExportMenu<T>({
   filename,
   title,
   disabled,
+  workbookSheets,
+  workbookLabel = "Download Workbook",
+  workbookHint = "One sheet per status (.xlsx)",
 }: ExportMenuProps<T>) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -44,7 +60,8 @@ export function ExportMenu<T>({
     };
   }, [open]);
 
-  const isDisabled = disabled || rows.length === 0;
+  const hasWorkbook = !!workbookSheets && workbookSheets.length > 0;
+  const isDisabled = disabled || (rows.length === 0 && !hasWorkbook);
 
   const run = (fn: typeof exportToExcel | typeof exportToPdf) => {
     fn({ filename, title, columns, rows });
@@ -58,6 +75,7 @@ export function ExportMenu<T>({
       icon: FileSpreadsheet,
       iconWrap: "bg-emerald-100 text-emerald-600",
       onClick: () => run(exportToExcel),
+      disabled: rows.length === 0,
     },
     {
       label: "Download PDF",
@@ -65,7 +83,23 @@ export function ExportMenu<T>({
       icon: FileText,
       iconWrap: "bg-rose-100 text-rose-600",
       onClick: () => run(exportToPdf),
+      disabled: rows.length === 0,
     },
+    ...(hasWorkbook
+      ? [
+          {
+            label: workbookLabel,
+            hint: workbookHint,
+            icon: Files,
+            iconWrap: "bg-primary-container text-primary",
+            onClick: () => {
+              exportWorkbook(filename, workbookSheets);
+              setOpen(false);
+            },
+            disabled: false,
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -100,7 +134,8 @@ export function ExportMenu<T>({
               <button
                 key={opt.label}
                 onClick={opt.onClick}
-                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors text-left"
+                disabled={opt.disabled}
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors text-left disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
               >
                 <div
                   className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${opt.iconWrap}`}

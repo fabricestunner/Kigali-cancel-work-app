@@ -32,6 +32,12 @@ import {
   type CollectionStateValue,
   type CollectionSummary,
 } from "../utils/collection";
+import { ExportMenu } from "../components/dashboard/ExportMenu";
+import {
+  toWorkbookSheet,
+  type ExportColumn,
+  type WorkbookSheet,
+} from "../utils/exportData";
 
 const COLLECTION_STATE_LABELS: Record<CollectionStateValue, string> = {
   collected: "Collected",
@@ -53,6 +59,83 @@ function formatDate(iso: string) {
 function formatAmount(amount: string | number, currency: string) {
   const num = typeof amount === "number" ? amount : Number(amount);
   return `${currency} ${num.toLocaleString("en-US")}`;
+}
+
+const ORDER_EXPORT_COLUMNS: ExportColumn<Order>[] = [
+  { header: "Ref", value: (o) => o.payment_ref ?? `#${o.id}`, width: 16 },
+  { header: "Participant", value: (o) => o.full_name, width: 26 },
+  { header: "Email", value: (o) => o.email, width: 30 },
+  { header: "Item", value: (o) => o.stock?.item ?? "—", width: 18 },
+  { header: "Qty", value: (o) => o.quantity, width: 8 },
+  { header: "Amount", value: (o) => Number(o.amount_paid), width: 14 },
+  { header: "Currency", value: (o) => o.currency, width: 10 },
+  { header: "Status", value: (o) => STATUS_LABELS[o.status] ?? o.status, width: 18 },
+  { header: "Collected", value: (o) => (o.collected ? "Yes" : "No"), width: 12 },
+  {
+    header: "Collected At",
+    value: (o) => (o.collected_at ? formatDate(o.collected_at) : "—"),
+    width: 16,
+  },
+  { header: "Date", value: (o) => formatDate(o.createdAt), width: 16 },
+];
+
+/** Sum of amount_paid across rows, formatted with the currency of the first
+ * row (the event runs a single currency in practice; falls back to a bare
+ * number when the group is empty). */
+function sumAmounts(rows: Order[]): string {
+  if (rows.length === 0) return "0";
+  const total = rows.reduce((sum, o) => sum + Number(o.amount_paid), 0);
+  return `${rows[0].currency} ${total.toLocaleString("en-US")}`;
+}
+
+const SUMMARY_COLUMNS: ExportColumn<{ label: string; count: number; revenue: string }>[] = [
+  { header: "Metric", value: (r) => r.label, width: 24 },
+  { header: "Count", value: (r) => r.count, width: 10 },
+  { header: "Revenue", value: (r) => r.revenue, width: 18 },
+];
+
+/**
+ * Builds the multi-sheet order export: one tab per payment status plus a
+ * Summary tab, matching the "Export" section of the order-collection design
+ * spec. Every sheet is written even when empty — a missing tab reads as a
+ * bug, an empty one reads as an answer.
+ */
+function buildOrdersWorkbook(orders: Order[]): WorkbookSheet[] {
+  const byStatus = (status: string) => orders.filter((o) => o.status === status);
+
+  const paid = byStatus("paid");
+  const backorder = byStatus("paid_backorder");
+  const pending = byStatus("pending");
+  const failed = byStatus("failed");
+  const collected = paid.filter((o) => o.collected);
+  const awaiting = paid.filter((o) => !o.collected);
+
+  const summaryRows = [
+    { label: "Pending", count: pending.length, revenue: sumAmounts(pending) },
+    { label: "Paid", count: paid.length, revenue: sumAmounts(paid) },
+    {
+      label: "Paid · Backorder",
+      count: backorder.length,
+      revenue: sumAmounts(backorder),
+    },
+    { label: "Failed", count: failed.length, revenue: sumAmounts(failed) },
+    { label: "Collected", count: collected.length, revenue: sumAmounts(collected) },
+    {
+      label: "Awaiting collection",
+      count: awaiting.length,
+      revenue: sumAmounts(awaiting),
+    },
+  ];
+
+  return [
+    toWorkbookSheet("Summary", SUMMARY_COLUMNS, summaryRows),
+    toWorkbookSheet("Paid", ORDER_EXPORT_COLUMNS, paid),
+    toWorkbookSheet("Collected", ORDER_EXPORT_COLUMNS, collected),
+    toWorkbookSheet("Awaiting collection", ORDER_EXPORT_COLUMNS, awaiting),
+    toWorkbookSheet("Backorder", ORDER_EXPORT_COLUMNS, backorder),
+    toWorkbookSheet("Pending", ORDER_EXPORT_COLUMNS, pending),
+    toWorkbookSheet("Failed", ORDER_EXPORT_COLUMNS, failed),
+  ];
 }
 
 function SkeletonRow() {
@@ -136,6 +219,11 @@ export function DashboardOrdersPage() {
     [groups],
   );
 
+  // Always built from the full, unfiltered order set — the workbook answers
+  // "who has paid but not collected?" across every order, not just the
+  // current search/filter view.
+  const workbookSheets = useMemo(() => buildOrdersWorkbook(orders), [orders]);
+
   const handleToggleCollected = async (order: Order) => {
     setTogglingId(order.id);
     setCollectError(null);
@@ -192,16 +280,28 @@ export function DashboardOrdersPage() {
                   Latest kit orders, filterable by buddy group
                 </p>
               </div>
-              <button
-                onClick={load}
-                disabled={loading}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-outline-variant text-sm font-['Inter'] font-semibold text-on-surface hover:bg-surface-container transition-colors disabled:opacity-50"
-              >
-                <RefreshCw
-                  className={`w-4 h-4 ${loading ? "animate-spin" : ""}`}
+              <div className="flex items-center gap-3">
+                <ExportMenu
+                  rows={filtered}
+                  columns={ORDER_EXPORT_COLUMNS}
+                  filename="orders"
+                  title="Kit Orders Report"
+                  disabled={loading}
+                  workbookSheets={workbookSheets}
+                  workbookLabel="Download Status Workbook"
+                  workbookHint="Summary + one sheet per status (.xlsx)"
                 />
-                Refresh
-              </button>
+                <button
+                  onClick={load}
+                  disabled={loading}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-outline-variant text-sm font-['Inter'] font-semibold text-on-surface hover:bg-surface-container transition-colors disabled:opacity-50"
+                >
+                  <RefreshCw
+                    className={`w-4 h-4 ${loading ? "animate-spin" : ""}`}
+                  />
+                  Refresh
+                </button>
+              </div>
             </div>
 
             {/* Filters */}
