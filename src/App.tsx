@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import {
   BrowserRouter as Router,
   Routes,
@@ -35,9 +36,30 @@ import { DashboardUsersPage } from "./pages/DashboardUsersPage";
 import { TestEmailPage } from "./pages/TestEmailPage";
 import ScrollToTop from "./components/ScrollToTop";
 
+// The scanner pulls in QR decoding and Ed25519 verification libraries that
+// must never reach an ordinary visitor browsing the public site — lazy
+// loading keeps them out of the main bundle entirely, in their own chunk
+// that only downloads when someone actually navigates to /scan.
+const ScanPage = lazy(() =>
+  import("./pages/ScanPage").then((m) => ({ default: m.ScanPage })),
+);
+
 function AppContent() {
   const location = useLocation();
   const isDashboard = location.pathname.startsWith("/dashboard");
+  const isScan = location.pathname.startsWith("/scan");
+
+  if (isScan) {
+    return (
+      <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-surface text-on-surface-variant">Loading scanner…</div>}>
+        <ProtectedRoute allowedRoles={["admin", "promoter"]}>
+          <Routes>
+            <Route path="/scan" element={<ScanPage />} />
+          </Routes>
+        </ProtectedRoute>
+      </Suspense>
+    );
+  }
 
   if (isDashboard) {
     return (
