@@ -22,21 +22,20 @@ const LOCATION_LABELS: Record<string, string> = {
 };
 
 export function OrderSuccessPage() {
-  const [order, setOrder] = useState<Order | null>(null);
+  // Hydrate the last order from localStorage during initial state creation
+  const [order] = useState<Order | null>(() => {
+    const saved = localStorage.getItem("lastOrder");
+    if (!saved) return null;
+    try {
+      return JSON.parse(saved) as Order;
+    } catch {
+      // corrupted data — ignore
+      return null;
+    }
+  });
   const [searchParams] = useSearchParams();
 
   const transactionToken = searchParams.get("TransactionToken");
-
-  useEffect(() => {
-    const saved = localStorage.getItem("lastOrder");
-    if (saved) {
-      try {
-        setOrder(JSON.parse(saved) as Order);
-      } catch {
-        // corrupted data — ignore
-      }
-    }
-  }, []);
 
   // Verify payment with backend as soon as DPO redirects back with the token.
   // Backend resolves CompanyRef from DPO's own response, so TransactionToken alone

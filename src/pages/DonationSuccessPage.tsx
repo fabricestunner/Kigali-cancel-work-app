@@ -214,22 +214,21 @@ function ActionButtons({ showDonateAgain }: { showDonateAgain: boolean }) {
 type VerifyStatus = "idle" | "verifying" | "verified" | "failed";
 
 export function DonationSuccessPage() {
-  const [donation, setDonation] = useState<DonationRecord | null>(null);
+  // Hydrate the last donation from localStorage during initial state creation
+  const [donation] = useState<DonationRecord | null>(() => {
+    const saved = localStorage.getItem("lastDonation");
+    if (!saved) return null;
+    try {
+      return JSON.parse(saved) as DonationRecord;
+    } catch {
+      // corrupted — ignore
+      return null;
+    }
+  });
   const [verifyStatus, setVerifyStatus] = useState<VerifyStatus>("idle");
   const [searchParams] = useSearchParams();
 
   const transactionToken = searchParams.get("TransactionToken");
-
-  useEffect(() => {
-    const saved = localStorage.getItem("lastDonation");
-    if (saved) {
-      try {
-        setDonation(JSON.parse(saved) as DonationRecord);
-      } catch {
-        // corrupted — ignore
-      }
-    }
-  }, []);
 
   const verifyPayment = async () => {
     if (!transactionToken) return;
