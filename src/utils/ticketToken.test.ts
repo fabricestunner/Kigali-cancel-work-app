@@ -19,7 +19,7 @@ async function mint(payload: object, privKey: Uint8Array): Promise<string> {
 
 beforeAll(async () => {
   const priv = ed.utils.randomPrivateKey();
-  publicKeyHex = Buffer.from(await ed.getPublicKeyAsync(priv)).toString("hex");
+  publicKeyHex = ed.etc.bytesToHex(await ed.getPublicKeyAsync(priv));
   validToken = await mint(
     { tid: 4417, oid: 1043, sz: "M", ev: EVENT, iat: 1755123456 },
     priv,
