@@ -54,7 +54,24 @@ export default {
         "secondary-fixed-dim": "#ffb2be",
         "on-tertiary-fixed": "#261a00",
         "background": "#fcf8f9",
-        "inverse-primary": "#ebb2ff"
+        "inverse-primary": "#ebb2ff",
+
+        // Scanner verdict roles (added for QR ticketing, T-F4). The generated
+        // MD3 palette above has no green/blue role, but the scan verdict
+        // table needs four visually distinct, colour-blind-safe signals:
+        // ALLOW (success/green), ALLOW_UNKNOWN (info/blue), ALREADY_USED
+        // (tertiary/amber — reuses the existing gold tertiary role, it is
+        // already amber-toned), REJECT (error/red — already exists above).
+        // Named as role/on-role/role-container/on-role-container to match
+        // the existing MD3 naming convention exactly.
+        "success": "#146c2e",
+        "on-success": "#ffffff",
+        "success-container": "#a6f4bc",
+        "on-success-container": "#04210f",
+        "info": "#0b5fc7",
+        "on-info": "#ffffff",
+        "info-container": "#d9e6ff",
+        "on-info-container": "#001b4d"
       },
       borderRadius: {
         "DEFAULT": "0.25rem",
