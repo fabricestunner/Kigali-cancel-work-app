@@ -15,6 +15,7 @@ import {
   Users,
   UsersRound,
   Briefcase,
+  Bell,
 } from "lucide-react";
 import logo from "../../assets/KCW-LOGO.png";
 
@@ -74,6 +75,11 @@ const navItems: NavItem[] = [
     label: "Reports",
     icon: <BarChart className="w-5 h-5" />,
     href: "/dashboard/reports",
+  },
+  {
+    label: "Notifications",
+    icon: <Bell className="w-5 h-5" />,
+    href: "/dashboard/notifications",
   },
   {
     label: "Settings",
