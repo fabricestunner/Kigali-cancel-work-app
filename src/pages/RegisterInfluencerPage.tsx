@@ -57,7 +57,8 @@ export function RegisterInfluencerPage() {
     );
     // Drop any stale error for a platform that's being deselected.
     setLinkErrors((prev) => {
-      const { [key]: _removed, ...rest } = prev;
+      const rest = { ...prev };
+      delete rest[key];
       return rest;
     });
   };
@@ -67,7 +68,8 @@ export function RegisterInfluencerPage() {
     // Clear the error as the user edits; it's re-checked on blur/submit.
     setLinkErrors((prev) => {
       if (!prev[key]) return prev;
-      const { [key]: _removed, ...rest } = prev;
+      const rest = { ...prev };
+      delete rest[key];
       return rest;
     });
   };

@@ -94,7 +94,7 @@ export function InventoryPage() {
         });
 
         setInventoryData(mapped);
-      } catch (e) {
+      } catch {
         setError("Failed to load inventory");
       } finally {
         setLoading(false);
