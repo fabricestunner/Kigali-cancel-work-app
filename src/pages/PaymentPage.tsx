@@ -11,6 +11,22 @@ interface PaymentMethod {
   type: "mobile" | "card";
 }
 
+interface DonationSummary {
+  fullName: string;
+  email: string;
+  phone: string;
+  amount: string;
+  amountLabel: string;
+}
+
+interface PaymentFormDetails {
+  phoneNumber: string;
+  cardNumber: string;
+  expiryDate: string;
+  cvv: string;
+  cardholderName: string;
+}
+
 const paymentMethods: PaymentMethod[] = [
   {
     id: "mtn",
@@ -279,7 +295,7 @@ function PaymentMethodCard({
   );
 }
 
-function DonationSummaryCard({ donationData }: { donationData: any }) {
+function DonationSummaryCard({ donationData }: { donationData: DonationSummary }) {
   const [isExpanded, setIsExpanded] = useState(true);
 
   return (
@@ -391,8 +407,8 @@ function PaymentForm({
   isProcessing,
 }: {
   selectedMethod: string;
-  paymentDetails: any;
-  onChange: (details: any) => void;
+  paymentDetails: PaymentFormDetails;
+  onChange: (details: PaymentFormDetails) => void;
   amount: string;
   onSubmit: (e: React.FormEvent) => void;
   isProcessing: boolean;
@@ -517,7 +533,7 @@ function PaymentForm({
   );
 }
 
-function PaymentSuccessPage({ donationData }: { donationData: any }) {
+function PaymentSuccessPage({ donationData }: { donationData: DonationSummary }) {
   const navigate = useNavigate();
   const transactionId = `TXN-${Date.now()}`;
   const date = new Date().toLocaleString();

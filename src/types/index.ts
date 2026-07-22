@@ -1,3 +1,10 @@
+export interface ApiErrorResponse {
+  message?: string;
+  error?: string;
+  explanation?: string;
+  detail?: string;
+}
+
 export interface Product {
   id: number;
   name: string;

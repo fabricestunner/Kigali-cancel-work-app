@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Mail, Send, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import type { AxiosError } from "axios";
 import api from "../services/api";
+import type { ApiErrorResponse } from "../types";
 
 type Status = "idle" | "sending" | "success" | "error";
 
@@ -28,9 +30,10 @@ export function TestEmailPage() {
         setErrorDetail(data.detail || "");
         setStatus("error");
       }
-    } catch (err: any) {
-      const res = err.response?.data;
-      setErrorMsg(res?.error || err.message || "Request failed");
+    } catch (err) {
+      const error = err as AxiosError<ApiErrorResponse>;
+      const res = error.response?.data;
+      setErrorMsg(res?.error || error.message || "Request failed");
       setErrorDetail(res?.detail || "");
       setStatus("error");
     }

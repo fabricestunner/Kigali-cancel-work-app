@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import type { AxiosError } from "axios";
+import type { ApiErrorResponse } from "../types";
 import {
   Shield,
   CheckCircle,
@@ -121,10 +123,11 @@ export function DonationPage() {
       localStorage.setItem("lastDonationRef", paymentRef);
 
       window.location.href = paymentUrl;
-    } catch (err: any) {
+    } catch (err) {
+      const error = err as AxiosError<ApiErrorResponse>;
       const msg =
-        err?.response?.data?.explanation ||
-        err?.response?.data?.message ||
+        error.response?.data?.explanation ||
+        error.response?.data?.message ||
         "Something went wrong. Please try again.";
       setError(msg);
       setIsSubmitting(false);

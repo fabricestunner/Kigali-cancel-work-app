@@ -282,7 +282,9 @@ export function InventoryPage() {
             <select
               className="border rounded-xl px-3 py-2 text-sm"
               value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value as any)}
+              onChange={(e) =>
+                setFilterStatus(e.target.value as "all" | "low" | "critical")
+              }
             >
               <option value="all">All</option>
               <option value="low">Low Stock</option>
@@ -447,7 +449,7 @@ function KpiCard({
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const map: any = {
+  const map: Record<string, string> = {
     healthy: "bg-green-100 text-green-700",
     low: "bg-orange-100 text-orange-700",
     critical: "bg-red-100 text-red-700",

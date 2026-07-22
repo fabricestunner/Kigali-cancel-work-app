@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Link, useSearchParams } from "react-router-dom";
+import type { AxiosError } from "axios";
 import {
   Heart,
   Mail,
@@ -11,6 +12,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import api from "../services/api";
+import type { ApiErrorResponse } from "../types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -243,10 +245,11 @@ export function DonationSuccessPage() {
       });
       localStorage.removeItem("lastDonationRef");
       setVerifyStatus("verified");
-    } catch (err: any) {
+    } catch (err) {
+      const error = err as AxiosError<ApiErrorResponse>;
       console.error(
         "[donation-success] callback failed:",
-        err?.response?.data ?? err.message,
+        error.response?.data ?? error.message,
       );
       setVerifyStatus("failed");
     }
