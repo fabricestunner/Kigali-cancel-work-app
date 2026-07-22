@@ -40,7 +40,8 @@ state that blocks safe iteration:
 | `dist/` in version control | Dropped. |
 | `CLAUDE.md` | Rewritten to match reality. |
 | `KCW_WE2.jpg` | Kept. |
-| Backend deploy target | cPanel / shared hosting. |
+| Backend deploy target | cPanel / shared hosting — confirmed **Hostinger** (`kcw.enjoyrwanda.rw` → `84.32.84.250`, NS `solar/lunar.dns-parking.com`). |
+| Scope of this task | **Repositories and CI only.** No deployment work in either repo. |
 
 ## Target Layout
 
@@ -82,20 +83,27 @@ Node 22, `npm ci`, two parallel jobs:
 **No test job.** There is no test suite. A green check over `exit 0` is worse
 than no check at all, because it manufactures confidence that nothing verified.
 
-### CD
+### CD — deferred, out of scope
 
-Vercel's native Git integration, pointed at the new repo. Deliberately *not* a
-GitHub Action: an Actions-based Vercel deploy duplicates what the integration
-already performs and consumes build minutes twice.
+**No deployment work is performed in this task.** Investigation established why:
 
-Repointing Vercel is a dashboard operation that cannot be scripted here. The
-live-site cutover is documented in `docs/DEPLOYMENT.md` as an ordered checklist:
+- The live frontend is served from the **old** repo, via a Vercel project that is
+  **not in the user's Vercel account**. All 14 projects under
+  `team_pJNWa3BpUEZmxbKKfknWsPPu` ("STUNNER's projects") were enumerated and none
+  correspond to this application.
+- Therefore "point Vercel at the new repo" is not an action available to the
+  user. The project belongs to another party, most plausibly the old repo's owner.
+- The frontend's production domain is not referenced anywhere in the source, so
+  it could not be determined from the codebase, and DNS control is unconfirmed.
 
-1. Add the new repo as a **second** Vercel project.
-2. Verify its preview URL end to end — in particular the DPO payment redirect,
-   which is domain-sensitive and cannot be validated by CI.
-3. Only then move the production domain to the new project.
-4. Delete the old project once the new one has served production traffic.
+Deployment is consequently a **separate task**, to be scoped once ownership of
+the Vercel project and the production domain is established. When that happens,
+the intended approach is Vercel's native Git integration rather than a GitHub
+Action, since an Actions-based deploy duplicates the integration and bills build
+minutes twice.
+
+Until then the new repo builds in CI but ships nowhere, and **production is
+untouched** — it continues to serve from the old repo exactly as it does today.
 
 ## Repo B — Backend
 
@@ -125,42 +133,46 @@ private repo as its initial state.
 `.github/workflows/ci.yml` on pull requests and pushes to `main`: `npm ci` →
 `prisma generate` → `tsc` build. No test job, for the same reason as Repo A.
 
-### CD
+### CD — deferred, out of scope
 
-cPanel offers no reliable GitHub Actions deployment path, so deployment stays
-manual and is made repeatable instead of automated:
+The backend runs on Hostinger shared hosting, which offers no reliable GitHub
+Actions deployment path. Per the agreed scope, **no backend deployment work is
+performed in this task** — no release workflow, no deployment documentation, no
+migration runs. The live API continues to be deployed exactly as it is today.
 
-- **`.github/workflows/release.yml`**: on a pushed git tag, build and upload a
-  deployable `.zip` artifact containing the compiled `dist/`, `package.json`,
-  `package-lock.json`, and `prisma/`.
-- **`docs/DEPLOYMENT.md`**: the manual cPanel upload procedure, including
-  `npx prisma migrate deploy`.
+When deployment is scoped as a separate task, the intended approach is a
+tag-triggered workflow producing a deployable `.zip` (compiled `dist/`,
+`package.json`, `package-lock.json`, `prisma/`) plus a written manual upload
+procedure — automating the build while leaving the upload manual.
 
-> **This is a live production database holding real donor and buyer records.**
-> Migrations run with `migrate deploy`, never `migrate dev` and never
-> `db push`, both of which can drop data. Take a database backup before any
-> migration.
+> **The backend talks to a live production database holding real donor and
+> buyer records.** When migrations are eventually run, they must use
+> `prisma migrate deploy` — never `migrate dev` and never `db push`, both of
+> which can drop data — and must be preceded by a database backup. Recorded
+> here so the constraint is not lost between tasks.
 
 ## Out of Scope
 
 Explicitly not done in this work:
 
+- **No deployment work of any kind, for either repo.** Production is untouched.
 - No pushes to `aimableshyaka/Kigali-cancel-walk`.
 - No writes to the production API or database; read-only `GET` probes only.
-- No Vercel dashboard changes — documented for the user to perform.
+- No Vercel changes — no new projects, no domain changes, no DNS changes.
 - No `git push --force` in any repository.
-- No deletion of the old repository copy on disk until the new frontend has been
-  confirmed serving production.
+- No deletion of the old repository copy on disk. It remains the source of the
+  live site and must not be disturbed.
 
 ## Risks
 
 | Risk | Mitigation |
 |---|---|
-| Live-site downtime while repointing Vercel | Parallel project, verify preview, then swap the domain. Old project stays until the new one is proven. |
+| Live-site disruption | Eliminated by scope: no deployment or DNS work occurs. The old repo and its Vercel project keep serving production, untouched. |
+| The new repo diverges from what is actually live | Accepted and explicit. Until deployment is migrated, `fabricestunner/Kigali-cancel-work-app` is a *source-of-truth candidate*, not the deployed artifact. Any change committed there does **not** reach production. This must be resolved before real feature work continues. |
 | Backend history is one shallow commit | Unavoidable — the original remote is inaccessible. Recorded here so the truncation is not later mistaken for data loss. |
 | Frontend repo is **public** | `.gitignore` excludes all `.env*`; only `.env.example` is tracked. Backend is private. |
 | Secrets leaking into the initial commit | Staged file list is reviewed before the initial commit; no `.env` file currently exists in this directory. |
-| Prisma migration against production data | Backup first; `migrate deploy` only. Documented in `docs/DEPLOYMENT.md`. |
+| Prisma migration against production data | Not applicable to this task — no migrations are run. The constraint is recorded under "Repo B — CD" for the future deployment task. |
 
 ## Success Criteria
 
@@ -169,6 +181,15 @@ Explicitly not done in this work:
 2. `fabricestunner/kcw-backend` exists, is private, and holds the 44 restored
    backend files.
 3. CI passes green on both repositories.
-4. `docs/DEPLOYMENT.md` exists in both, covering the Vercel cutover and the
-   cPanel release procedure.
-5. `CLAUDE.md` accurately describes the repository it lives in.
+4. `CLAUDE.md` accurately describes the repository it lives in.
+5. Production is verifiably unchanged: the live site and API still serve from
+   their existing sources, and no Vercel, DNS, or database state was modified.
+
+## Follow-up Task (not this one)
+
+Migrating deployment. Blocked on two unknowns that must be answered first:
+
+1. Who owns the Vercel project currently serving the live frontend?
+2. What is the production domain, and who controls its DNS?
+
+Until both are answered, the new repository cannot become the deployed source.
