@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
-import { useCart } from "../context/CartContext";
+import { useCart } from "../context/useCart";
 import { Trash2, Calendar, MapPin, Clock, Info, Users, Loader2, Gift } from "lucide-react";
 import { getAllBuddyGroups, type BuddyGroup } from "../services/buddygroup.service";
 

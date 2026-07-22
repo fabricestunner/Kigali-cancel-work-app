@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Menu, X, ShoppingCart, LogIn } from "lucide-react";
-import { useCart } from "../context/CartContext";
+import { useCart } from "../context/useCart";
 import logo from "../assets/KCW-LOGO.png";
 import rotaryDistrictLogo from "../assets/RCKV-logo.png";
 

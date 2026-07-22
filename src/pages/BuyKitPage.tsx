@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
-import { useCart } from "../context/CartContext";
+import { useCart } from "../context/useCart";
 import { ShoppingCart } from "lucide-react";
 import { getStock } from "../services/stock.service";
 import { getProducts } from "../services/product.service";

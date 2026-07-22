@@ -5,7 +5,7 @@ import {
   User, Phone, Mail, Package,
   MapPin, ShieldCheck, Lock, Loader2, ArrowRight,
 } from "lucide-react";
-import { useCart } from "../context/CartContext";
+import { useCart } from "../context/useCart";
 import api from "../services/api";
 import type { AxiosError } from "axios";
 import type { CheckoutFormData, Order } from "../types";

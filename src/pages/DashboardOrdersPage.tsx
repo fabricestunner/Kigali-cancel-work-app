@@ -15,12 +15,12 @@ import {
 } from "lucide-react";
 import api from "../services/api";
 import type { Order } from "../hooks/useDashboardData";
+import { OrderModal } from "../components/dashboard/RecentOrdersTable";
 import {
-  OrderModal,
   STATUS_STYLES,
   STATUS_LABELS,
   isPaid,
-} from "../components/dashboard/RecentOrdersTable";
+} from "../components/dashboard/recentOrders.helpers";
 import { getAllBuddyGroups, type BuddyGroup } from "../services/buddygroup.service";
 
 function formatDate(iso: string) {
