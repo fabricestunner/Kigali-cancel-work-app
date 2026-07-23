@@ -5,19 +5,45 @@ import { CameraScanner } from "../components/scan/CameraScanner";
 import { ModeToggle } from "../components/scan/ModeToggle";
 import { ManualEntry } from "../components/scan/ManualEntry";
 import { VerdictPanel } from "../components/scan/VerdictPanel";
+import { SyncStatusBar } from "../components/scan/SyncStatusBar";
 import { verifyTicketToken } from "../utils/ticketToken";
 import { scanVerdict } from "../utils/scanVerdict";
 import type { ScanMode, ScanVerdictResult } from "../utils/scanVerdict";
+import { getManifest, lookupByCode, TICKET_EVENT_ID, type ManifestTicket } from "../services/ticket.service";
 import {
-  getManifest,
-  postScans,
-  lookupByCode,
-  TICKET_EVENT_ID,
-  type ManifestTicket,
-} from "../services/ticket.service";
+  saveManifest,
+  getManifestFromDb,
+  putManifestTicket,
+  applyLocalScan,
+} from "../services/ticketDb";
+import {
+  queueScan,
+  startSyncEngine,
+  subscribeSyncState,
+  flushQueue,
+  type SyncState,
+} from "../services/ticketSync";
 import { clearSession } from "../utils/auth";
 
 const MODE_STORAGE_KEY = "scanMode";
+
+/**
+ * Label recorded locally as `kit_collected_by` / `checked_in_by` the instant
+ * a scan happens — before the server has confirmed anything. It's replaced
+ * by the server's own value once `reconcileScanResults` applies the
+ * authoritative response (server state wins), so this only matters for the
+ * brief window before sync.
+ */
+function currentAgentLabel(): string {
+  try {
+    const raw = localStorage.getItem("user");
+    if (!raw) return "This device";
+    const user = JSON.parse(raw) as { name?: string; email?: string };
+    return user.name ?? user.email ?? "This device";
+  } catch {
+    return "This device";
+  }
+}
 
 function readStoredMode(): ScanMode {
   try {
@@ -55,13 +81,22 @@ export function ScanPage() {
   const [processing, setProcessing] = useState(false);
   const [overridePending, setOverridePending] = useState(false);
   const [sessionCount, setSessionCount] = useState(0);
+  const [syncState, setSyncState] = useState<SyncState>(() => ({
+    status: "pending",
+    pendingCount: 0,
+    lastError: null,
+    lastSyncedAt: null,
+  }));
 
   // The ticket this override button (if shown) would act on — kept
   // separate from `result` so an override can't accidentally fire against
   // stale state after the agent has moved on to the next scan.
-  const pendingOverrideRef = useRef<{ ticketId: number; size?: string; shortCode?: string } | null>(
-    null,
-  );
+  const pendingOverrideRef = useRef<{
+    ticketId: number;
+    orderId: number;
+    size?: string;
+    shortCode?: string;
+  } | null>(null);
 
   useEffect(() => {
     try {
@@ -72,81 +107,136 @@ export function ScanPage() {
     }
   }, [mode]);
 
+  // Offline app shell (T-F8): registered ONLY here, from a page that is
+  // itself lazy-loaded and reached only by someone navigating to /scan — an
+  // ordinary site visitor never runs this effect. The explicit `scope`
+  // means this service worker can only ever control documents under
+  // "/scan"; it cannot intercept requests from "/" or "/dashboard".
+  // `import.meta.env.PROD` guards it out of `vite dev`, where dist/sw.js
+  // doesn't exist.
+  useEffect(() => {
+    if (!import.meta.env.PROD || !("serviceWorker" in navigator)) return;
+    navigator.serviceWorker
+      .register("/sw.js", { scope: "/scan" })
+      .catch(() => {
+        // Not fatal — the scanner still works with a live network; it just
+        // won't survive a cold start with zero connectivity.
+      });
+  }, []);
+
+  // Sync engine: starts once, flushes the queue on reconnect with backoff,
+  // and drives the always-visible SyncStatusBar — T-F8.
+  useEffect(() => {
+    const stop = startSyncEngine();
+    const unsubscribe = subscribeSyncState(setSyncState);
+    return () => {
+      unsubscribe();
+      stop();
+    };
+  }, []);
+
+  // Manifest: hydrate from IndexedDB first so the scanner works with zero
+  // network (T-F7), then refresh from the server in the background when
+  // online. A network failure here is never fatal — the local copy (however
+  // stale) keeps scanning correctly; a verified ticket missing from it just
+  // reads as ALLOW_UNKNOWN instead of catching a repeat scan.
   useEffect(() => {
     let cancelled = false;
+
+    function applyTickets(tickets: ManifestTicket[]) {
+      if (cancelled) return;
+      setManifest(new Map(tickets.map((t) => [t.id, t])));
+      setShortCodeIndex(new Map(tickets.map((t) => [t.short_code, t.id])));
+    }
+
     (async () => {
+      const cached = await getManifestFromDb();
+      applyTickets(cached);
+
       try {
         const tickets = await getManifest(TICKET_EVENT_ID);
         if (cancelled) return;
-        setManifest(new Map(tickets.map((t) => [t.id, t])));
-        setShortCodeIndex(new Map(tickets.map((t) => [t.short_code, t.id])));
+        await saveManifest(tickets);
+        applyTickets(tickets);
         setManifestError(null);
       } catch {
         if (cancelled) return;
-        // Not fatal: signed tokens still verify locally without the
-        // manifest, they just always read as ALLOW_UNKNOWN instead of
-        // catching a repeat scan. Manual code lookup still hits the API
-        // directly per code.
-        setManifestError(
-          "Could not load the ticket list — scans will still work, but repeat scans may not be caught until this reloads.",
-        );
+        if (cached.length === 0) {
+          setManifestError(
+            "Could not load the ticket list and no offline copy is saved on this device — scans will still verify by signature, but every one will read as a new/unknown ticket until this reloads online.",
+          );
+        } else {
+          setManifestError(
+            "Could not refresh the ticket list — using the last downloaded copy. Repeat scans since then may not be caught until this reloads online.",
+          );
+        }
       }
     })();
+
     return () => {
       cancelled = true;
     };
   }, []);
 
   const recordScan = useCallback(
-    async (ticketId: number, scanMode: ScanMode, overridden: boolean) => {
-      try {
-        const [state] = await postScans([
-          {
-            client_scan_id: makeClientScanId(),
-            ticket_id: ticketId,
-            mode: scanMode,
-            scanned_at: new Date().toISOString(),
-            overridden,
-          },
-        ]);
-        if (state) {
-          setManifest((prev) => {
-            const next = new Map(prev);
-            const existing = next.get(ticketId);
-            if (existing) {
-              next.set(ticketId, {
-                ...existing,
-                kit_collected: state.kit_collected,
-                kit_collected_at: state.kit_collected_at,
-                kit_collected_by: state.kit_collected_by,
-                checked_in: state.checked_in,
-                checked_in_at: state.checked_in_at,
-                checked_in_by: state.checked_in_by,
-              });
-            }
-            return next;
-          });
-        }
-      } catch {
-        setBanner(
-          "This scan was allowed here, but could not be saved to the server. Check the connection — the same ticket may show as unused again until it syncs.",
-        );
-      }
+    async (
+      ticketId: number,
+      orderId: number,
+      size: string | undefined,
+      shortCode: string | undefined,
+      scanMode: ScanMode,
+      overridden: boolean,
+    ) => {
+      const scannedAt = new Date().toISOString();
+
+      // Fully local first: write the new state before any network call, so
+      // it's correct even with zero connectivity — spec section 6.
+      const existing = manifest.get(ticketId);
+      const updated = applyLocalScan(
+        existing,
+        { id: ticketId, order_id: orderId, short_code: shortCode ?? "", size: size ?? "" },
+        scanMode,
+        scannedAt,
+        currentAgentLabel(),
+      );
+      await putManifestTicket(updated);
+      setManifest((prev) => new Map(prev).set(ticketId, updated));
+
+      // Then enqueue for sync. The queue write never throws for
+      // connectivity reasons — offline is a normal, silent-to-the-agent
+      // state, surfaced instead through the always-visible SyncStatusBar.
+      await queueScan({
+        client_scan_id: makeClientScanId(),
+        ticket_id: ticketId,
+        mode: scanMode,
+        scanned_at: scannedAt,
+        overridden,
+      });
     },
-    [],
+    [manifest],
   );
 
   const applyVerdict = useCallback(
-    (ticketId: number | undefined, verdict: ScanVerdictResult, size?: string, shortCode?: string) => {
+    (
+      ticketId: number | undefined,
+      orderId: number | undefined,
+      verdict: ScanVerdictResult,
+      size?: string,
+      shortCode?: string,
+    ) => {
       setResult({ ...verdict, mode, ticketId, size, shortCode });
       setSessionCount((c) => c + 1);
       pendingOverrideRef.current =
-        verdict.verdict === "ALREADY_USED" && ticketId !== undefined
-          ? { ticketId, size, shortCode }
+        verdict.verdict === "ALREADY_USED" && ticketId !== undefined && orderId !== undefined
+          ? { ticketId, orderId, size, shortCode }
           : null;
 
-      if ((verdict.verdict === "ALLOW" || verdict.verdict === "ALLOW_UNKNOWN") && ticketId !== undefined) {
-        void recordScan(ticketId, mode, false);
+      if (
+        (verdict.verdict === "ALLOW" || verdict.verdict === "ALLOW_UNKNOWN") &&
+        ticketId !== undefined &&
+        orderId !== undefined
+      ) {
+        void recordScan(ticketId, orderId, size, shortCode, mode, false);
       }
     },
     [mode, recordScan],
@@ -161,14 +251,22 @@ export function ScanPage() {
         const publicKey = import.meta.env.VITE_TICKET_PUBLIC_KEY as string | undefined;
         if (!publicKey) {
           setBanner("Scanner is missing its public key configuration — contact an admin.");
-          applyVerdict(undefined, { verdict: "REJECT" });
+          applyVerdict(undefined, undefined, { verdict: "REJECT" });
           return;
         }
 
+        // Fully offline-capable: decode + verify the signature locally,
+        // then look up state in the local manifest — no network required.
         const payload = await verifyTicketToken(raw, publicKey, TICKET_EVENT_ID);
         const known = payload ? manifest.get(payload.tid) : undefined;
         const verdict = scanVerdict(payload, known, mode);
-        applyVerdict(payload?.tid, verdict, known?.size ?? payload?.sz, known?.short_code);
+        applyVerdict(
+          payload?.tid,
+          known?.order_id ?? payload?.oid,
+          verdict,
+          known?.size ?? payload?.sz,
+          known?.short_code,
+        );
       } finally {
         setProcessing(false);
       }
@@ -188,22 +286,30 @@ export function ScanPage() {
         })();
 
         if (!ticket) {
+          if (!navigator.onLine) {
+            setBanner(
+              "That code isn't in the offline ticket list on this device, and there's no connection to look it up. Try the camera instead if this is a genuine QR ticket.",
+            );
+            applyVerdict(undefined, undefined, { verdict: "REJECT" });
+            return;
+          }
           try {
             const found = await lookupByCode(code);
             if (found) {
               ticket = found;
+              await putManifestTicket(found);
               setManifest((prev) => new Map(prev).set(found.id, found));
               setShortCodeIndex((prev) => new Map(prev).set(found.short_code, found.id));
             }
           } catch {
             setBanner("Could not look up that code — check the connection and try again.");
-            applyVerdict(undefined, { verdict: "REJECT" });
+            applyVerdict(undefined, undefined, { verdict: "REJECT" });
             return;
           }
         }
 
         if (!ticket) {
-          applyVerdict(undefined, { verdict: "REJECT" });
+          applyVerdict(undefined, undefined, { verdict: "REJECT" });
           return;
         }
 
@@ -215,7 +321,7 @@ export function ScanPage() {
           ticket,
           mode,
         );
-        applyVerdict(ticket.id, verdict, ticket.size, ticket.short_code);
+        applyVerdict(ticket.id, ticket.order_id, verdict, ticket.size, ticket.short_code);
       } finally {
         setProcessing(false);
       }
@@ -227,11 +333,13 @@ export function ScanPage() {
     const pending = pendingOverrideRef.current;
     if (!pending) return;
     setOverridePending(true);
-    void recordScan(pending.ticketId, mode, true).finally(() => {
-      setOverridePending(false);
-      setResult((prev) => (prev ? { ...prev, verdict: "ALLOW" } : prev));
-      pendingOverrideRef.current = null;
-    });
+    void recordScan(pending.ticketId, pending.orderId, pending.size, pending.shortCode, mode, true).finally(
+      () => {
+        setOverridePending(false);
+        setResult((prev) => (prev ? { ...prev, verdict: "ALLOW" } : prev));
+        pendingOverrideRef.current = null;
+      },
+    );
   }, [mode, recordScan]);
 
   const handleLogout = () => {
@@ -263,6 +371,8 @@ export function ScanPage() {
 
       <main className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-4 p-4">
         <ModeToggle mode={mode} onChange={setMode} />
+
+        <SyncStatusBar state={syncState} onSyncNow={() => void flushQueue()} />
 
         {manifestError && (
           <div className="flex items-start gap-2 rounded-lg bg-tertiary-container p-3 text-body-md text-on-tertiary-container">
