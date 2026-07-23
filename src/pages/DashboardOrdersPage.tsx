@@ -186,6 +186,7 @@ export function DashboardOrdersPage() {
   const [collectError, setCollectError] = useState<string | null>(null);
   const [ticketActionId, setTicketActionId] = useState<number | null>(null);
   const [ticketActionError, setTicketActionError] = useState<string | null>(null);
+  const [ticketActionMessage, setTicketActionMessage] = useState<string | null>(null);
   const [generateAllConfirming, setGenerateAllConfirming] = useState(false);
   const [generateAllBusy, setGenerateAllBusy] = useState(false);
   const [generateAllResult, setGenerateAllResult] = useState<BackfillAllResult | null>(null);
@@ -250,7 +251,12 @@ export function DashboardOrdersPage() {
 
   // Paid orders with no tickets yet, from the full loaded set — what "Generate
   // all tickets" is about to act on.
-  const pendingTicketCount = useMemo(
+  // A lower bound only: the orders list is a capped page (newest first), so
+  // paid orders without tickets that fall outside it are not counted here.
+  // Backfill exists mainly for those older orders, so this count must never
+  // gate the bulk action — the server processes the whole database and the
+  // result panel reports the true numbers.
+  const pendingTicketCountInView = useMemo(
     () => orders.filter((o) => isPaid(o.status) && (o._count?.tickets ?? 0) === 0).length,
     [orders],
   );
@@ -288,8 +294,15 @@ export function DashboardOrdersPage() {
   const handleGenerateTickets = async (order: Order) => {
     setTicketActionId(order.id);
     setTicketActionError(null);
+    setTicketActionMessage(null);
     try {
-      await backfillOrder(order.id);
+      const { issued, alreadyHad } = await backfillOrder(order.id);
+      const ref = order.payment_ref ?? `#${order.id}`;
+      setTicketActionMessage(
+        issued > 0
+          ? `${ref}: generated and emailed ${issued} ticket${issued !== 1 ? "s" : ""}.`
+          : `${ref}: already had ${alreadyHad} ticket${alreadyHad !== 1 ? "s" : ""}, nothing to do.`,
+      );
       await load();
     } catch (err) {
       // 409 (unpaid) and 503 (signing key unset) both carry the reason.
@@ -304,8 +317,11 @@ export function DashboardOrdersPage() {
   const handleResendTickets = async (order: Order) => {
     setTicketActionId(order.id);
     setTicketActionError(null);
+    setTicketActionMessage(null);
     try {
-      await resendTickets(order.id);
+      const { resent } = await resendTickets(order.id);
+      const ref = order.payment_ref ?? `#${order.id}`;
+      setTicketActionMessage(`${ref}: resent ${resent} ticket${resent !== 1 ? "s" : ""} to ${order.email}.`);
     } catch (err) {
       // 404 fires when tickets haven't been generated yet — the message says so.
       setTicketActionError(
@@ -371,17 +387,12 @@ export function DashboardOrdersPage() {
                     setGenerateAllResult(null);
                     setGenerateAllError(null);
                   }}
-                  disabled={loading || pendingTicketCount === 0}
-                  title={
-                    pendingTicketCount === 0
-                      ? "Every paid order already has tickets"
-                      : `${pendingTicketCount} paid order(s) have no tickets yet`
-                  }
+                  disabled={loading}
+                  title="Issue tickets for every paid order that has none yet, across all orders"
                   className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-white text-sm font-['Inter'] font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
                 >
                   <Ticket className="w-4 h-4" />
-                  Generate all tickets
-                  {pendingTicketCount > 0 ? ` (${pendingTicketCount})` : ""}
+                  Generate missing tickets
                 </button>
                 <button
                   onClick={load}
@@ -399,8 +410,12 @@ export function DashboardOrdersPage() {
             {generateAllConfirming && (
               <div className="bg-primary-container/40 border border-primary/30 rounded-2xl p-4 flex flex-col gap-3">
                 <p className="font-['Inter'] text-sm text-on-surface">
-                  Generate tickets for {pendingTicketCount} paid order
-                  {pendingTicketCount !== 1 ? "s" : ""} and email them?
+                  Issue tickets for every paid order that has none yet, across
+                  all orders, and email the buyers? Orders that already have
+                  tickets are skipped.
+                  {pendingTicketCountInView > 0
+                    ? ` At least ${pendingTicketCountInView} in the current view need them.`
+                    : ""}
                 </p>
                 <div className="flex items-center gap-2">
                   <button
@@ -525,6 +540,12 @@ export function DashboardOrdersPage() {
                 <div className="mt-3 flex items-start gap-2 rounded-xl border border-error/30 bg-error/10 px-3 py-2.5">
                   <AlertCircle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />
                   <p className="font-['Inter'] text-sm text-error">{ticketActionError}</p>
+                </div>
+              )}
+              {ticketActionMessage && (
+                <div className="mt-3 flex items-start gap-2 rounded-xl border border-success/30 bg-success/10 px-3 py-2.5">
+                  <CheckCircle className="w-4 h-4 text-success flex-shrink-0 mt-0.5" />
+                  <p className="font-['Inter'] text-sm text-success">{ticketActionMessage}</p>
                 </div>
               )}
             </div>
