@@ -36,6 +36,7 @@ export interface Order {
   collected: boolean;
   collected_at: string | null;
   collected_by: string | null;
+  _count?: { tickets: number };
 }
 
 export interface Donation {

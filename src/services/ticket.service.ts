@@ -107,3 +107,34 @@ export async function lookupByCode(code: string): Promise<ManifestTicket | null>
     throw err;
   }
 }
+
+/** Summary returned by `POST /ticket/backfill` — one pass over every paid
+ * order missing tickets. `failed` carries a reason per order so an admin can
+ * see *why* a given order was skipped rather than just a count. */
+export interface BackfillAllResult {
+  ordersProcessed: number;
+  ticketsIssued: number;
+  skipped: number;
+  failed: { orderId: number; reason: string }[];
+}
+
+/** Issues tickets for a single paid order and emails them — idempotent, a
+ * second call on an order that already has tickets returns
+ * `{ issued: 0, alreadyHad: N }` rather than duplicating anything. */
+export async function backfillOrder(id: number): Promise<{ issued: number; alreadyHad: number }> {
+  const res = await api.post(`/ticket/backfill/${id}`);
+  return res.data;
+}
+
+/** Runs the backfill across every paid order in one pass. */
+export async function backfillAll(): Promise<BackfillAllResult> {
+  const res = await api.post("/ticket/backfill");
+  return res.data;
+}
+
+/** Re-sends an order's existing tickets to the original buyer without
+ * regenerating or voiding anything — same short codes, same QR codes. */
+export async function resendTickets(id: number): Promise<{ resent: number }> {
+  const res = await api.post(`/ticket/resend/${id}`);
+  return res.data;
+}
