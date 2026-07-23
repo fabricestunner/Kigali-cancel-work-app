@@ -241,12 +241,11 @@ export async function getConflicts(): Promise<ConflictRecord[]> {
  *      settles its scan and still updates the manifest — it *additionally*
  *      produces a `ConflictRecord` instead of being discarded.
  *
- * `results[i]` is matched to `sentEntries[i]` by array index, mirroring the
- * request/response ordering `postScans` already assumes in
- * `ScanPage.recordScan` (`const [state] = await postScans([...])`) — see the
- * TODO in ticket.service.ts; the response has no `client_scan_id` to key on.
- * A response whose `ticket_id` doesn't match its positional request entry is
- * treated as not yet acknowledged rather than misapplied.
+ * Results are matched to sent entries by `client_scan_id`, not by array
+ * position, so a server that reorders, coalesces or omits entries can never
+ * apply one scan's state to another. A result the server rejected (`ok:
+ * false` — e.g. an unknown ticket) is left queued rather than settled, so a
+ * transient rejection does not silently drop the scan.
  */
 export function reconcileScanResults(
   sentEntries: ScanQueueEntry[],
@@ -257,21 +256,24 @@ export function reconcileScanResults(
   const settledClientScanIds: string[] = [];
   const conflicts: ConflictRecord[] = [];
 
-  const count = Math.min(sentEntries.length, results.length);
-  for (let i = 0; i < count; i++) {
-    const entry = sentEntries[i];
-    const result = results[i];
-    if (!result || result.ticket_id !== entry.ticket_id) continue;
+  const resultById = new Map<string, ScanResult>();
+  for (const r of results) {
+    if (r.client_scan_id) resultById.set(r.client_scan_id, r);
+  }
+
+  for (const entry of sentEntries) {
+    const result = resultById.get(entry.client_scan_id);
+    // No matching result, an error, or missing state → not acknowledged;
+    // leave it in the queue to retry rather than dropping it.
+    if (!result || !result.ok || !result.state) continue;
 
     settledClientScanIds.push(entry.client_scan_id);
     manifestPatches.set(entry.ticket_id, {
       id: entry.ticket_id,
-      kit_collected: result.kit_collected,
-      kit_collected_at: result.kit_collected_at,
-      kit_collected_by: result.kit_collected_by,
-      checked_in: result.checked_in,
-      checked_in_at: result.checked_in_at,
-      checked_in_by: result.checked_in_by,
+      kit_collected: result.state.kit_collected,
+      kit_collected_at: result.state.kit_collected_at ?? undefined,
+      checked_in: result.state.checked_in,
+      checked_in_at: result.state.checked_in_at ?? undefined,
     });
 
     if (result.conflict) {

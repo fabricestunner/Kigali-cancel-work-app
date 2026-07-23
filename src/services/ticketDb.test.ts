@@ -24,12 +24,16 @@ function entry(overrides: Partial<ScanQueueEntry> = {}): ScanQueueEntry {
 
 function result(overrides: Partial<ScanResult> = {}): ScanResult {
   return {
+    client_scan_id: "scan-1",
     ticket_id: 4417,
-    kit_collected: false,
-    checked_in: true,
-    checked_in_at: "2026-08-09T06:12:03Z",
-    checked_in_by: "Eric",
+    ok: true,
     conflict: false,
+    state: {
+      kit_collected: false,
+      kit_collected_at: null,
+      checked_in: true,
+      checked_in_at: "2026-08-09T06:12:03Z",
+    },
     ...overrides,
   };
 }
@@ -64,10 +68,17 @@ describe("reconcileScanResults", () => {
     ];
     const results = [
       result({
-        checked_in: true,
-        checked_in_at: "2026-08-09T06:10:00Z",
-        checked_in_by: "Alice",
+        client_scan_id: "scan-local",
         conflict: true,
+        // Server recorded an earlier check-in by a different agent; the
+        // reconciled manifest must reflect the server's timestamp, not the
+        // local optimistic 06:15.
+        state: {
+          kit_collected: false,
+          kit_collected_at: null,
+          checked_in: true,
+          checked_in_at: "2026-08-09T06:10:00Z",
+        },
       }),
     ];
 
@@ -78,15 +89,12 @@ describe("reconcileScanResults", () => {
       id: 4417,
       checked_in: true,
       checked_in_at: "2026-08-09T06:10:00Z",
-      checked_in_by: "Alice",
     });
   });
 
   it("records conflicts rather than dropping them, while still settling and updating the ticket", () => {
     const entries = [entry({ client_scan_id: "scan-conflict" })];
-    const results = [
-      result({ checked_in_by: "Alice", checked_in_at: "2026-08-09T06:10:00Z", conflict: true }),
-    ];
+    const results = [result({ client_scan_id: "scan-conflict", conflict: true })];
 
     const { conflicts, settledClientScanIds, manifestPatches } = reconcileScanResults(
       entries,
@@ -121,11 +129,17 @@ describe("reconcileScanResults", () => {
     expect(conflicts).toEqual([]);
   });
 
-  it("does not misapply a result to the wrong entry when the response is desynced from the request", () => {
-    const entries = [entry({ client_scan_id: "scan-a", ticket_id: 1 })];
-    // Response at the same index claims a different ticket id — treat as
-    // unacknowledged rather than trusting positional alignment blindly.
-    const results = [result({ ticket_id: 999 })];
+  it("matches by client_scan_id, not position, so a reordered response settles the right scan", () => {
+    const entries = [
+      entry({ client_scan_id: "scan-a", ticket_id: 1 }),
+      entry({ client_scan_id: "scan-b", ticket_id: 2 }),
+    ];
+    // Server returns them in the opposite order. Positional matching would
+    // apply ticket 2's state to scan-a; keyed matching must not.
+    const results = [
+      result({ client_scan_id: "scan-b", ticket_id: 2 }),
+      result({ client_scan_id: "scan-a", ticket_id: 1 }),
+    ];
 
     const { settledClientScanIds, manifestPatches } = reconcileScanResults(
       entries,
@@ -133,7 +147,24 @@ describe("reconcileScanResults", () => {
       RECORDED_AT,
     );
 
+    expect(settledClientScanIds.sort()).toEqual(["scan-a", "scan-b"]);
+    expect(manifestPatches.map((p) => p.id).sort()).toEqual([1, 2]);
+  });
+
+  it("leaves a rejected scan (ok:false) queued rather than settling it", () => {
+    const entries = [entry({ client_scan_id: "scan-bad" })];
+    const results = [
+      result({ client_scan_id: "scan-bad", ok: false, error: "ticket not found", state: undefined }),
+    ];
+
+    const { settledClientScanIds, manifestPatches, conflicts } = reconcileScanResults(
+      entries,
+      results,
+      RECORDED_AT,
+    );
+
     expect(settledClientScanIds).toEqual([]);
     expect(manifestPatches).toEqual([]);
+    expect(conflicts).toEqual([]);
   });
 });

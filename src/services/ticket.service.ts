@@ -38,15 +38,31 @@ export interface ScanQueueEntry {
  * already recorded by a *different* agent — surfaced for the duplicate-scan
  * reconciliation report (Phase 3), not acted on specially in Phase 1.
  */
+/**
+ * Authoritative per-scan result from `POST /ticket/scan`.
+ *
+ * This mirrors the backend's actual response shape exactly: results carry
+ * `client_scan_id`, so they are matched to sent entries by that key rather
+ * than by array position, and the ticket state is nested under `state`.
+ * `ok` is false for a rejected entry (e.g. unknown ticket); `replayed` marks
+ * an idempotent re-send the server had already recorded.
+ */
 export interface ScanResult {
-  ticket_id: number;
-  kit_collected: boolean;
-  kit_collected_at?: string;
-  kit_collected_by?: string;
-  checked_in: boolean;
-  checked_in_at?: string;
-  checked_in_by?: string;
-  conflict: boolean;
+  client_scan_id: string | null;
+  ticket_id: number | null;
+  ok: boolean;
+  error?: string;
+  mode?: string;
+  short_code?: string;
+  size?: string;
+  conflict?: boolean;
+  replayed?: boolean;
+  state?: {
+    kit_collected: boolean;
+    kit_collected_at: string | null;
+    checked_in: boolean;
+    checked_in_at: string | null;
+  };
 }
 
 /**
@@ -68,8 +84,9 @@ export async function getManifest(event: string = TICKET_EVENT_ID): Promise<Mani
  * server-side change.
  */
 export async function postScans(scans: ScanQueueEntry[]): Promise<ScanResult[]> {
-  const res = await api.post<ScanResult[]>("/ticket/scan", { scans });
-  return res.data;
+  // The backend wraps the batch in { results: [...] }, not a bare array.
+  const res = await api.post<{ results: ScanResult[] }>("/ticket/scan", { scans });
+  return res.data.results;
 }
 
 /**
