@@ -15,6 +15,8 @@ import {
   Circle,
   Ban,
   UsersRound,
+  Ticket,
+  Send,
 } from "lucide-react";
 import api from "../services/api";
 import type { Order } from "../hooks/useDashboardData";
@@ -26,6 +28,12 @@ import {
 } from "../components/dashboard/recentOrders.helpers";
 import { getAllBuddyGroups, type BuddyGroup } from "../services/buddygroup.service";
 import { markOrderCollected } from "../services/order.service";
+import {
+  backfillOrder,
+  backfillAll,
+  resendTickets,
+  type BackfillAllResult,
+} from "../services/ticket.service";
 import {
   collectionState,
   groupByPaymentRef,
@@ -138,6 +146,16 @@ function buildOrdersWorkbook(orders: Order[]): WorkbookSheet[] {
   ];
 }
 
+/** Pulls the server's `{ message }` off an Axios error, falling back to a
+ * generic message only when the server didn't send one. The 409 (unpaid),
+ * 404 (resend before generate) and 503 (signing key unset) responses are all
+ * informative on their own — always prefer them over a generic failure. */
+function extractErrorMessage(err: unknown, fallback: string): string {
+  return axios.isAxiosError(err)
+    ? ((err.response?.data as { message?: string } | undefined)?.message ?? fallback)
+    : fallback;
+}
+
 function SkeletonRow() {
   return (
     <tr className="border-b border-slate-100">
@@ -166,6 +184,12 @@ export function DashboardOrdersPage() {
   const [collectionFilter, setCollectionFilter] = useState<"all" | CollectionStateValue>("all");
   const [togglingId, setTogglingId] = useState<number | null>(null);
   const [collectError, setCollectError] = useState<string | null>(null);
+  const [ticketActionId, setTicketActionId] = useState<number | null>(null);
+  const [ticketActionError, setTicketActionError] = useState<string | null>(null);
+  const [generateAllConfirming, setGenerateAllConfirming] = useState(false);
+  const [generateAllBusy, setGenerateAllBusy] = useState(false);
+  const [generateAllResult, setGenerateAllResult] = useState<BackfillAllResult | null>(null);
+  const [generateAllError, setGenerateAllError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -224,6 +248,13 @@ export function DashboardOrdersPage() {
   // current search/filter view.
   const workbookSheets = useMemo(() => buildOrdersWorkbook(orders), [orders]);
 
+  // Paid orders with no tickets yet, from the full loaded set — what "Generate
+  // all tickets" is about to act on.
+  const pendingTicketCount = useMemo(
+    () => orders.filter((o) => isPaid(o.status) && (o._count?.tickets ?? 0) === 0).length,
+    [orders],
+  );
+
   const handleToggleCollected = async (order: Order) => {
     setTogglingId(order.id);
     setCollectError(null);
@@ -233,10 +264,7 @@ export function DashboardOrdersPage() {
     } catch (err) {
       // The server refuses an unpaid order with 409 and an explanation. Show
       // its message rather than a generic failure — the reason is the point.
-      const message = axios.isAxiosError(err)
-        ? (err.response?.data as { message?: string } | undefined)?.message
-        : undefined;
-      setCollectError(message ?? "Could not update collection status.");
+      setCollectError(extractErrorMessage(err, "Could not update collection status."));
     } finally {
       setTogglingId(null);
     }
@@ -254,6 +282,52 @@ export function DashboardOrdersPage() {
       alert("Failed to update order status. Please try again.");
     } finally {
       setMarking(false);
+    }
+  };
+
+  const handleGenerateTickets = async (order: Order) => {
+    setTicketActionId(order.id);
+    setTicketActionError(null);
+    try {
+      await backfillOrder(order.id);
+      await load();
+    } catch (err) {
+      // 409 (unpaid) and 503 (signing key unset) both carry the reason.
+      setTicketActionError(
+        `${order.payment_ref ?? `#${order.id}`}: ${extractErrorMessage(err, "Could not generate tickets.")}`,
+      );
+    } finally {
+      setTicketActionId(null);
+    }
+  };
+
+  const handleResendTickets = async (order: Order) => {
+    setTicketActionId(order.id);
+    setTicketActionError(null);
+    try {
+      await resendTickets(order.id);
+    } catch (err) {
+      // 404 fires when tickets haven't been generated yet — the message says so.
+      setTicketActionError(
+        `${order.payment_ref ?? `#${order.id}`}: ${extractErrorMessage(err, "Could not resend tickets.")}`,
+      );
+    } finally {
+      setTicketActionId(null);
+    }
+  };
+
+  const handleGenerateAll = async () => {
+    setGenerateAllBusy(true);
+    setGenerateAllError(null);
+    try {
+      const result = await backfillAll();
+      setGenerateAllResult(result);
+      setGenerateAllConfirming(false);
+      await load();
+    } catch (err) {
+      setGenerateAllError(extractErrorMessage(err, "Could not generate tickets."));
+    } finally {
+      setGenerateAllBusy(false);
     }
   };
 
@@ -292,6 +366,24 @@ export function DashboardOrdersPage() {
                   workbookHint="Summary + one sheet per status (.xlsx)"
                 />
                 <button
+                  onClick={() => {
+                    setGenerateAllConfirming(true);
+                    setGenerateAllResult(null);
+                    setGenerateAllError(null);
+                  }}
+                  disabled={loading || pendingTicketCount === 0}
+                  title={
+                    pendingTicketCount === 0
+                      ? "Every paid order already has tickets"
+                      : `${pendingTicketCount} paid order(s) have no tickets yet`
+                  }
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-white text-sm font-['Inter'] font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
+                >
+                  <Ticket className="w-4 h-4" />
+                  Generate all tickets
+                  {pendingTicketCount > 0 ? ` (${pendingTicketCount})` : ""}
+                </button>
+                <button
                   onClick={load}
                   disabled={loading}
                   className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-outline-variant text-sm font-['Inter'] font-semibold text-on-surface hover:bg-surface-container transition-colors disabled:opacity-50"
@@ -303,6 +395,73 @@ export function DashboardOrdersPage() {
                 </button>
               </div>
             </div>
+
+            {generateAllConfirming && (
+              <div className="bg-primary-container/40 border border-primary/30 rounded-2xl p-4 flex flex-col gap-3">
+                <p className="font-['Inter'] text-sm text-on-surface">
+                  Generate tickets for {pendingTicketCount} paid order
+                  {pendingTicketCount !== 1 ? "s" : ""} and email them?
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleGenerateAll}
+                    disabled={generateAllBusy}
+                    className="px-4 py-2 rounded-xl bg-primary text-white text-sm font-['Inter'] font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
+                  >
+                    {generateAllBusy ? "Generating…" : "Confirm"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGenerateAllConfirming(false)}
+                    disabled={generateAllBusy}
+                    className="px-4 py-2 rounded-xl bg-white border border-outline-variant text-sm font-['Inter'] font-semibold text-on-surface-variant hover:bg-surface-container transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {generateAllError && (
+              <div className="flex items-start gap-2 rounded-2xl border border-error/30 bg-error/10 px-4 py-3">
+                <AlertCircle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />
+                <p className="font-['Inter'] text-sm text-error">{generateAllError}</p>
+              </div>
+            )}
+
+            {generateAllResult && (
+              <div className="bg-white border border-outline-variant rounded-2xl p-4 space-y-2">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="font-['Inter'] text-sm font-semibold text-on-surface">
+                    Processed {generateAllResult.ordersProcessed} order(s):{" "}
+                    {generateAllResult.ticketsIssued} ticket(s) issued,{" "}
+                    {generateAllResult.skipped} already had tickets
+                    {generateAllResult.failed.length > 0
+                      ? `, ${generateAllResult.failed.length} failed`
+                      : ""}
+                    .
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setGenerateAllResult(null)}
+                    title="Dismiss"
+                    className="text-on-surface-variant hover:text-on-surface flex-shrink-0"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                {generateAllResult.failed.length > 0 && (
+                  <ul className="space-y-1">
+                    {generateAllResult.failed.map((f) => (
+                      <li key={f.orderId} className="font-['Inter'] text-xs text-error">
+                        Order #{f.orderId}: {f.reason}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
 
             {/* Filters */}
             <div className="bg-white rounded-2xl shadow-sm border border-outline-variant p-4">
@@ -360,6 +519,12 @@ export function DashboardOrdersPage() {
                 <div className="mt-3 flex items-start gap-2 rounded-xl border border-error/30 bg-error/10 px-3 py-2.5">
                   <AlertCircle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />
                   <p className="font-['Inter'] text-sm text-error">{collectError}</p>
+                </div>
+              )}
+              {ticketActionError && (
+                <div className="mt-3 flex items-start gap-2 rounded-xl border border-error/30 bg-error/10 px-3 py-2.5">
+                  <AlertCircle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />
+                  <p className="font-['Inter'] text-sm text-error">{ticketActionError}</p>
                 </div>
               )}
             </div>
@@ -547,6 +712,34 @@ export function DashboardOrdersPage() {
                                     <CheckCircle className="w-4 h-4" />
                                   </button>
                                 )}
+                                {isPaid(order.status) &&
+                                  ((order._count?.tickets ?? 0) === 0 ? (
+                                    <button
+                                      onClick={() => handleGenerateTickets(order)}
+                                      disabled={ticketActionId === order.id}
+                                      title="Generate tickets"
+                                      className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-primary hover:bg-primary-container transition-colors disabled:opacity-50"
+                                    >
+                                      <Ticket className="w-4 h-4" />
+                                    </button>
+                                  ) : (
+                                    <>
+                                      <span
+                                        title={`${order._count?.tickets} ticket(s) sent`}
+                                        className="w-8 h-8 rounded-lg flex items-center justify-center text-success"
+                                      >
+                                        <CheckCircle className="w-4 h-4" />
+                                      </span>
+                                      <button
+                                        onClick={() => handleResendTickets(order)}
+                                        disabled={ticketActionId === order.id}
+                                        title="Resend tickets"
+                                        className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-primary hover:bg-primary-container transition-colors disabled:opacity-50"
+                                      >
+                                        <Send className="w-4 h-4" />
+                                      </button>
+                                    </>
+                                  ))}
                               </div>
                             </td>
                           </motion.tr>
