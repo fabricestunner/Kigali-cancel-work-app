@@ -17,6 +17,7 @@ import {
   UsersRound,
   Ticket,
   Send,
+  ShieldCheck,
 } from "lucide-react";
 import api from "../services/api";
 import type { Order } from "../hooks/useDashboardData";
@@ -34,6 +35,7 @@ import {
   resendTickets,
   type BackfillAllResult,
 } from "../services/ticket.service";
+import { reconcilePayments, type ReconcileSummary } from "../services/payment.service";
 import {
   collectionState,
   groupByPaymentRef,
@@ -46,6 +48,7 @@ import {
   type ExportColumn,
   type WorkbookSheet,
 } from "../utils/exportData";
+import { getRole } from "../utils/auth";
 
 const COLLECTION_STATE_LABELS: Record<CollectionStateValue, string> = {
   collected: "Collected",
@@ -191,6 +194,15 @@ export function DashboardOrdersPage() {
   const [generateAllBusy, setGenerateAllBusy] = useState(false);
   const [generateAllResult, setGenerateAllResult] = useState<BackfillAllResult | null>(null);
   const [generateAllError, setGenerateAllError] = useState<string | null>(null);
+  const [reconcileBusy, setReconcileBusy] = useState(false);
+  const [reconcileResult, setReconcileResult] = useState<ReconcileSummary | null>(null);
+  const [reconcileError, setReconcileError] = useState<string | null>(null);
+
+  // Presentation only: the server enforces admin-only access regardless —
+  // this just keeps a promoter from staring at a button that will always
+  // 403. Mirrors the Sidebar's own role gate: a token predating roles (or
+  // absent) defaults to admin.
+  const isAdmin = (getRole() ?? "admin") === "admin";
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -347,6 +359,20 @@ export function DashboardOrdersPage() {
     }
   };
 
+  const handleReconcile = async () => {
+    setReconcileBusy(true);
+    setReconcileError(null);
+    try {
+      const result = await reconcilePayments();
+      setReconcileResult(result);
+      await load();
+    } catch (err) {
+      setReconcileError(extractErrorMessage(err, "Could not reconcile payments."));
+    } finally {
+      setReconcileBusy(false);
+    }
+  };
+
   const collectionLabel = (o: Order) =>
     o.delivery_option === "delivery"
       ? `Delivery → ${o.location}`
@@ -394,6 +420,17 @@ export function DashboardOrdersPage() {
                   <Ticket className="w-4 h-4" />
                   Generate missing tickets
                 </button>
+                {isAdmin && (
+                  <button
+                    onClick={handleReconcile}
+                    disabled={loading || reconcileBusy}
+                    title="Verify stale pending orders against DPO and complete the ones that actually paid"
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-outline-variant text-sm font-['Inter'] font-semibold text-on-surface hover:bg-surface-container transition-colors disabled:opacity-50"
+                  >
+                    <ShieldCheck className={`w-4 h-4 ${reconcileBusy ? "animate-pulse" : ""}`} />
+                    {reconcileBusy ? "Reconciling…" : "Reconcile payments"}
+                  </button>
+                )}
                 <button
                   onClick={load}
                   disabled={loading}
@@ -471,6 +508,46 @@ export function DashboardOrdersPage() {
                     {generateAllResult.failed.map((f) => (
                       <li key={f.orderId} className="font-['Inter'] text-xs text-error">
                         Order #{f.orderId}: {f.reason}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {reconcileError && (
+              <div className="flex items-start gap-2 rounded-2xl border border-error/30 bg-error/10 px-4 py-3">
+                <AlertCircle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />
+                <p className="font-['Inter'] text-sm text-error">{reconcileError}</p>
+              </div>
+            )}
+
+            {reconcileResult && (
+              <div className="bg-white border border-outline-variant rounded-2xl p-4 space-y-2">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="font-['Inter'] text-sm font-semibold text-on-surface">
+                    Scanned {reconcileResult.scanned} stale order(s): reconciled{" "}
+                    {reconcileResult.reconciled}, failed {reconcileResult.failed}, still
+                    pending {reconcileResult.stillPending}
+                    {reconcileResult.errors.length > 0
+                      ? `, ${reconcileResult.errors.length} error(s)`
+                      : ""}
+                    .
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setReconcileResult(null)}
+                    title="Dismiss"
+                    className="text-on-surface-variant hover:text-on-surface flex-shrink-0"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                {reconcileResult.errors.length > 0 && (
+                  <ul className="space-y-1">
+                    {reconcileResult.errors.map((e) => (
+                      <li key={e.dpoToken} className="font-['Inter'] text-xs text-error">
+                        Token {e.dpoToken}: {e.reason}
                       </li>
                     ))}
                   </ul>
