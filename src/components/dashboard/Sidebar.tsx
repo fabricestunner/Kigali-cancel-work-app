@@ -17,6 +17,7 @@ import {
   Briefcase,
   Bell,
   ShieldCheck,
+  ScanLine,
 } from "lucide-react";
 import logo from "../../assets/KCW-LOGO.png";
 import { getRole, type Role } from "../../utils/auth";
@@ -41,6 +42,12 @@ const navItems: NavItem[] = [
     label: "Kit Orders",
     icon: <Shirt className="w-5 h-5" />,
     href: "/dashboard/orders",
+    roles: ["admin", "promoter"],
+  },
+  {
+    label: "Scan Tickets",
+    icon: <ScanLine className="w-5 h-5" />,
+    href: "/scan",
     roles: ["admin", "promoter"],
   },
   {
