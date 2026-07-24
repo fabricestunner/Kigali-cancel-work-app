@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, LogOut, ScanLine } from "lucide-react";
+import { AlertCircle, LayoutDashboard, LogOut, ScanLine } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { CameraScanner } from "../components/scan/CameraScanner";
 import { ModeToggle } from "../components/scan/ModeToggle";
@@ -359,14 +359,24 @@ export function ScanPage() {
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="flex min-h-[44px] items-center gap-1 rounded-lg px-3 text-label-md font-semibold text-on-surface-variant"
-        >
-          <LogOut className="h-5 w-5" aria-hidden="true" />
-          Sign out
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => navigate("/dashboard")}
+            className="flex min-h-[44px] items-center gap-1 rounded-lg px-3 text-label-md font-semibold text-on-surface-variant"
+          >
+            <LayoutDashboard className="h-5 w-5" aria-hidden="true" />
+            Dashboard
+          </button>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="flex min-h-[44px] items-center gap-1 rounded-lg px-3 text-label-md font-semibold text-on-surface-variant"
+          >
+            <LogOut className="h-5 w-5" aria-hidden="true" />
+            Sign out
+          </button>
+        </div>
       </header>
 
       <main className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-4 p-4">

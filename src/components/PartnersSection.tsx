@@ -7,6 +7,7 @@ import cityKigaliLogo from "../assets/Partners/city of Kigali.jpg";
 import mohLogo from "../assets/Partners/MoH.jpg";
 import ncbaLogo from "../assets/Partners/NCBA.png";
 import imLogo from "../assets/Partners/I&M.jpg";
+import mayaLogo from "../assets/Partners/Maya EA Limited.png";
 
 const partners = [
   { name: "Rotary Club of Kigali Virunga", logo: rotaryLogo },
@@ -17,6 +18,7 @@ const partners = [
   { name: "Ministry of Health", logo: mohLogo },
   { name: "NCBA Bank", logo: ncbaLogo },
   { name: "I&M Bank", logo: imLogo },
+  { name: "Maya E.A Limited", logo: mayaLogo },
 ];
 
 // Duplicate list to create a seamless infinite scroll
